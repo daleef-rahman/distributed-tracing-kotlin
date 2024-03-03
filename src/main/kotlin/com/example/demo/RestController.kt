@@ -4,37 +4,43 @@ import kotlinx.coroutines.delay
 import kotlinx.coroutines.newFixedThreadPoolContext
 import kotlinx.coroutines.runBlocking
 import kotlinx.coroutines.withContext
+import org.slf4j.Logger
+import org.slf4j.LoggerFactory
 import org.springframework.cloud.sleuth.ScopedSpan
 import org.springframework.cloud.sleuth.Tracer
-import org.springframework.cloud.sleuth.instrument.kotlin.asContextElement
-import org.springframework.stereotype.Controller
 import org.springframework.web.bind.annotation.GetMapping
+import org.springframework.web.bind.annotation.RestController
 
-@Controller
-class Rest(val tracer: Tracer) {
+@RestController
+class RestController(val tracer: Tracer) {
+  var log: Logger = LoggerFactory.getLogger(RestController::class.java)
   val fixedThreadpool = newFixedThreadPoolContext(2, "custom-thread-pool")
 
   @GetMapping("api")
   fun get() {
-    runBlocking (tracer.asContextElement() + fixedThreadpool) {
-      val currSpan = tracer.currentSpan()
-      println("1: ${Thread.currentThread()} traceId: ${currSpan?.context()?.traceId()} spanId: ${tracer.currentSpan()?.context()?.spanId()}")
+    runBlocking (TracingContextElement() + fixedThreadpool) {
+      log("1")
+      delay(2000)
 
-      val span: ScopedSpan = tracer.startScopedSpan("second-part")
-      withContext(tracer.asContextElement()) {
-        println("2.1: ${Thread.currentThread()} traceId: ${tracer.currentSpan()?.context()?.traceId()} spanId: ${tracer.currentSpan()?.context()?.spanId()}")
-        function1()
-        println("2.2: ${Thread.currentThread()} traceId: ${tracer.currentSpan()?.context()?.traceId()} spanId: ${tracer.currentSpan()?.context()?.spanId()}")
-        span.end()
+      // Start a new span to track the long-running function
+      val span: ScopedSpan = tracer.startScopedSpan("long-running-functions")
+      withContext(TracingContextElement()) {
+        longRunningFunction()
+        longRunningFunction()
       }
+      span.end()
 
-      println("3: ${Thread.currentThread()} traceId: ${currSpan?.context()?.traceId()} spanId: ${tracer.currentSpan()?.context()?.spanId()}")
+      log("3")
     }
-
   }
 
-  suspend fun function1() {
+  suspend fun longRunningFunction() {
+    log("2.1")
     delay(2000)
+    log("2.2")
   }
 
+  fun log(message: String) {
+    log.info("$message ${Thread.currentThread()} traceId: ${tracer.currentSpan()?.context()?.traceId()} spanId: ${tracer.currentSpan()?.context()?.spanId()}")
+  }
 }
